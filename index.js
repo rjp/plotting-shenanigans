@@ -73,30 +73,34 @@ const processGCode = gcode => {
   */
 
     process.stdout.write(`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" baseProfile="full" viewBox="650 -1000 1800 1000"><!-- p1 -->`)
-    let curZ = 500
+    let curZ = 1000
     let curP = ""
-    let pG = gcode[0]
-    let pP = gcode[1]
-  gcode.forEach(g => {
-        if (g.Z != undefined) {
-            if (g.Z == 0 && curZ > 0) { // pen down
-                process.stdout.write(`<!--u--><path fill="none" stroke="#F00" d="${curP} L ${pP.X} ${pP.Y}"/>`)
-            } else {
-                process.stdout.write(`<!--d--><path fill="none" stroke="#000" d="${curP}"/>`)
-                curP = ""
-            }
-            curZ = g.Z
-        } else {
-            if (curZ > 0) {
-                curP = curP + `M${g.X} ${g.Y} `
-            } else {
-                curP = curP + `L${g.X} ${g.Y} `
-                pP = g
-            }
-        }
-      pG = g
-  })
-                process.stdout.write(`<path fill="none" stroke="#000" d="${curP}"/>`)
+    let pG
+    let pP = pG
+      gcode.forEach(g => {
+          x = g[0][0]
+          y = g[0][1]
+          if (pG != undefined) {
+              process.stdout.write(`<!--u--><path fill="none" stroke="#F00" d="M${pG[0]} ${pG[1]} L${x} ${y}"/>`,)
+          }
+          process.stdout.write(`<!--d--><path fill="none" stroke="#000" d="M${x} ${y} `,)
+          g.forEach(q => {
+              x = q[0]
+              y = q[1]
+              if (pG == undefined || (x != pG[0] || y != pG[1])) {
+                  process.stdout.write(`L${x} ${y} `,)
+              }
+              pG = q
+          })
+          if (pG == undefined) {
+              process.stdout.write(` L${x} ${y} `,)
+              pG = g[0][0]
+          } else {
+              process.stdout.write(`    L${x} ${y}       `,)
+          }
+          process.stdout.write(`"/>`,)
+//          process.stderr.write("\n")
+        })
       process.stdout.write(`</svg>\n`)
 
 
@@ -187,29 +191,15 @@ const processGCode = gcode => {
       process.stdout.write(`</svg>\n`)
       */
 
+    /*
   gcode.forEach(g => {
       if (g.X != undefined) {
           g.X = g.X
           g.Y = -g.Y
       }
   })
+  */
 
-/*
-    process.stdout.write(`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" baseProfile="full" viewBox="650 -1000 1800 1000"><!-- p2 --><path fill="none" stroke="#000" d="M ${gcode[0].X} ${gcode[0].Y} `)
-  gcode.forEach(g => {
-    if (g.X !== undefined && !isNaN(g.X)) {
-        if (g.Z > 0) {
-            if (prevG.X != g.X || prevG.Y != g.Y) {
-                process.stdout.write(`M ${g.X} ${g.Y} `)
-            }
-        } else {
-            process.stdout.write(`L ${g.X} ${g.Y} `)
-        }
-        prevG = g
-    }
-  })
-      process.stdout.write(`"></svg>\n`)
-      */
   return gcode
 }
 
@@ -231,15 +221,52 @@ if (!fs.existsSync(svgPath)) {
     // Convert SVG into an array of GCode objects.
     // We need these in a numeric format to scale them.
     gcode = await SVGUtils.traceSVGFile(svgPath)
+      console.log(gcode)
 
     // Scale to best fit the machine's drawing bounds.
+      console.log(gcode)
     gcode = processGCode(gcode)
+      console.log(gcode)
 
-    process.stdout.write(`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" baseProfile="full" viewBox="650 -1000 1800 1000"><!-- p2 --><path stroke="#000" d="M ${Math.round(gcode[0].X)} ${Math.round(gcode[0].Y)} `)
+  let newpoints = []
+xmin = 9999; xmax = -xmin; ymin = xmin; ymax = xmax
   gcode.forEach(g => {
-    process.stdout.write(`L ${Math.round(g.X)} ${Math.round(g.Y)} `)
+      g.forEach(p => {
+          if (p[0] < xmin) { xmin = p[0] }
+          if (p[0] > xmax) { xmax = p[0] }
+          if (p[1] < ymin) { ymin = p[1] }
+          if (p[1] > ymax) { ymax = p[1] }
+      })
   })
+  xc = (xmin+xmax)/2
+  yc = (ymin+ymax)/2
+  xo = 1200-xc; yo = 0-yc
+  cx = gcode[0][0][0]+xo
+  cy = gcode[0][0][1]+yo
+  cz = 1000
+      console.log(`${xmin},${ymin} - ${xmax},${ymax} c=${cx},${cy} o=${xo},${yo}`)
+    process.stdout.write(`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" baseProfile="full" viewBox="650 -1000 1800 1000"><!-- p2 --><path fill="none" stroke="#000" d=" `)
+
+  gcode.forEach(g => {
+          mx = g[0][0] + xo; my = g[0][1] + yo
+
+          process.stdout.write(`M ${mx} ${my}   `)
+            if (cx != mx || cy != my) {
+                newpoints.push({G:1, X: cx, Y: -cy, Z:1000})
+                newpoints.push({G:1, X: mx, Y: -my, Z:1000})
+            }
+            newpoints.push({G:1, X: mx, Y: -my, Z:0})
+          g.forEach(p => {
+            lx = p[0] + xo; ly = p[1] + yo
+            process.stdout.write(`L ${lx} ${ly} `)
+            newpoints.push({G:1, X: lx, Y: -ly, Z:0})
+            cx = lx
+            cy = ly
+          })
+  })
+        newpoints.push({G:28})
       process.stdout.write(`"></svg>\n`)
+    gcode = newpoints
 
       sendGCode()
   })()
